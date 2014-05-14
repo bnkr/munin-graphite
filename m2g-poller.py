@@ -125,6 +125,8 @@ class Munin():
                 break
             if current_line.startswith("#"):
                 continue
+            if current_line.rstrip().endswith("value"):
+                continue
             if current_line == ".":
                 break
             yield current_line
