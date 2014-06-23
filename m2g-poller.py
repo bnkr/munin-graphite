@@ -461,7 +461,7 @@ def main():
     logger = logging.getLogger()
     logger.setLevel(logging_level)
     syslog = logging.handlers.SysLogHandler(address='/dev/log')
-    stdout = logging.StreamHandler(stream=sys.stdout)
+    stdout = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter('MUNIN-GRAPHITE: %(levelname)s %(message)s')
     syslog.setFormatter(formatter)
     if args.logtosyslog:
