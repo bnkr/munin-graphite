@@ -1,1 +1,9 @@
+# python
 *.pyc
+*.pyo
+# vim
+*.sw[po]
+# setuptools
+build/
+dist/
+*.egg-info
