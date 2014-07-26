@@ -22,7 +22,6 @@ logger = logging.getLogger()
 
 class MuninThread(threading.Thread):
     """Custom Threading class, one thread for each host in configuration."""
-
     def __init__(self, params, cmdlineargs):
         threading.Thread.__init__(self)
         self.name = params['host']
@@ -81,7 +80,7 @@ def parse_args():
                         action="store",
                         default='.*',
                         help="Regular expression for selecting only defined subset of received plugins.")
-    parser.add_argument("--interval",
+    parser.add_argument("-i", "--interval",
                         type=int,
                         default=60,
                         help="Interval (seconds) between polling Munin host for statistics. If set to 0, exit after "
@@ -109,57 +108,49 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-
-###
-# stop all threads and exit
-###
 def handler_term(signum=signal.SIGTERM, frame=None):
+    """Stop all threads and exit."""
     global threads
 
     for t in threads:
         t.dostop()
 
-
-###
-# set all threads to reload information about all munin-node's plugins
-###
 def handler_hup(signum, frame=None):
+    """Set all threads to reload information about all munin-node's plugins."""
     global threads
 
     for t in threads:
         t.reload()
 
-
 def read_configuration(configfile):
     """
-    Returns False if configuration file is not readable, list of dictionaries otherwise
+    Returns a list of dictionaries to configure each host.
 
-    Configuration options follow parameters described as command line options. All parameters are optional except host,
-    displayname parameter is built from section name, so it is always presented too.
+    Configuration options follow parameters described as command line options.
+    All parameters are optional except host, displayname parameter is built from
+    section name, so it is always presented too.
 
     Non-existent options are superseded by defaults
 
-    Example:
-    [servername]
-    host=fqdn[:remotenode]
-    port=4949
-    carbon=carbonhostfqdn:port
-    interval=60
-    prefix=prefix for Graphite's target
-    noprefix=True|False
-    filter=^cpu.*
+    Example::
 
-    @param configfile: full filepath to configuration file
-    @rtype : object
+        [servername]
+        host=fqdn[:remotenode]
+        port=4949
+        carbon=carbonhostfqdn:port
+        interval=60
+        prefix=prefix for Graphite's target
+        noprefix=True|False
+        filter=^cpu.*
+
     """
-
-    cf = ConfigParser.ConfigParser()
+    parser = ConfigParser.ConfigParser()
     hostscfg = []
     try:
-        cf.read(configfile)
-        for section in cf.sections():
+        parser.read(configfile)
+        for section in parser.sections():
             di = {}
-            for ki, vi in cf.items(section):
+            for ki, vi in parser.items(section):
                 # construct dictionary item
                 di[ki] = vi
             if "host" in di.keys():
@@ -170,30 +161,32 @@ def read_configuration(configfile):
 
     return hostscfg
 
+def setup_logging(settings):
+    if settings.verbose == 1:
+        logging_level = logging.ERROR
+    elif settings.verbose == 3:
+        logging_level = logging.DEBUG
+    else:
+        logging_level = logging.INFO
+
+    logger = logging.getLogger()
+    logger.setLevel(logging_level)
+    syslog = logging.handlers.SysLogHandler(address='/dev/log')
+    stdout = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter('MUNIN-GRAPHITE: %(levelname)s %(message)s')
+    syslog.setFormatter(formatter)
+
+    if settings.logtosyslog:
+        logger.addHandler(syslog)
+    else:
+        logger.addHandler(stdout)
 
 def console_main():
     """Entry point for the poller application."""
     global threads
 
     args = parse_args()
-    if args.verbose == 1:
-        logging_level = logging.ERROR
-    elif args.verbose == 3:
-        logging_level = logging.DEBUG
-    else:
-        logging_level = logging.INFO
-
-    #logging.basicConfig(format=LOGGING_FORMAT, level=logging_level)
-    logger = logging.getLogger()
-    logger.setLevel(logging_level)
-    syslog = logging.handlers.SysLogHandler(address='/dev/log')
-    stdout = logging.StreamHandler(stream=sys.stdout)
-    formatter = logging.Formatter('MUNIN-GRAPHITE: %(levelname)s %(message)s')
-    syslog.setFormatter(formatter)
-    if args.logtosyslog:
-        logger.addHandler(syslog)
-    else:
-        logger.addHandler(stdout)
+    setup_logging(args)
 
     # block for setting handling of signals
     signal.signal(signal.SIGHUP, handler_hup)
@@ -220,6 +213,8 @@ def console_main():
                 logging.info("All threads finished, exiting.")
                 break
             else:
+                # TODO: we could do something to repair broken threads here
+                # maybe?
                 time.sleep(1)
         except KeyboardInterrupt:
             handler_term()
