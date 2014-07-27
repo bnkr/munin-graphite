@@ -17,8 +17,16 @@ RE_MUNIN_NODE_NAME = re.compile(r"^# munin node at\s+(?P<nodename>\S+)$")
 threads = []
 
 from m2gpoll.munin import Telnet
+from m2gpoll import poller
 
 logger = logging.getLogger()
+
+class DummyFactory(object):
+    def __init__(self, munin):
+        self.munin = munin
+
+    def get(self, thread_id):
+        return self.munin
 
 class MuninThread(threading.Thread):
     """Custom Threading class, one thread for each host in configuration."""
@@ -40,23 +48,47 @@ class MuninThread(threading.Thread):
 
         self.munin = Telnet(hostname=self.name, args=cfg, thread=self)
 
+        # TODO:
+        #   no way to configure the output here.  We really need that in order
+        #   to write to stdout when we're testing the metrics.
+        events = poller.EventQueue()
+        pool = poller.MultiPoolPluginProcessor(general=1, overflow=1)
+        self.host = poller.ConcurrentHostPoller(
+                runners=pool, transports=DummyFactory(self.munin),
+                events=events)
+
     def run(self):
         logger.info("Starting thread for %s." % self.name)
-        self.munin.go()
+        if self.new_poller:
+            self._pooled_poller_go()
+        else:
+            self.munin.go()
         logger.info("Finishing thread for %s." % self.name)
+
+    def _pooled_poller_go(self):
+        """Here so we can try out the events and pools idea without havint to
+        change the munin thing."""
+        interval = int(self.munin.args.interval)
+
+        while not Telnet.shutdown:
+            self.host.events.put(self.host.events.Interval())
+            self.host.events.put(self.host.events.Exit())
+            self.host.pool.reset()
+            self.munin.connect()
+            self.host.run()
+            if not Telnet.shutdown:
+                logger.info("sleep")
+                time.sleep(interval)
 
     def dostop(self):
         logger.info("Thread %s: Got signal to stop." % self.name)
+        self.host.events.put(self.host.events.Exit(), )
         Telnet.shutdown = True
 
     def reload(self):
         self.munin.reload_plugins = True
         logger.info("Thread %s: Got signal to reload." % self.name)
 
-
-###
-# bellow are common function
-###
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Send Munin statistics to Graphite.")
@@ -104,6 +136,8 @@ def parse_args():
                         default=2,
                         type=int,
                         help="Verbosity level. 1:ERROR, 2:INFO, 3:DEBUG. Default: %(default)d")
+    parser.add_argument("--new-poller", default=False, action='store_true',
+                        help='Use pooled poller (for development work).')
 
     args = parser.parse_args()
     return args
@@ -172,7 +206,7 @@ def setup_logging(settings):
     logger = logging.getLogger()
     logger.setLevel(logging_level)
     syslog = logging.handlers.SysLogHandler(address='/dev/log')
-    stdout = logging.StreamHandler(sys.stdout)
+    stdout = logging.StreamHandler(sys.stderr)
     formatter = logging.Formatter('MUNIN-GRAPHITE: %(levelname)s %(message)s')
     syslog.setFormatter(formatter)
 
@@ -203,6 +237,7 @@ def console_main():
     for host in hosts:
         logging.info("Going to thread with config %s" % host)
         threads.append(MuninThread(host, args))
+        threads[-1].new_poller = args.new_poller
 
     for t in threads:
         t.start()

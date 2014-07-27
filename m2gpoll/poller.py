@@ -58,6 +58,10 @@ class ConcurrentHostPoller():
     have its own pool of plugin runners because you don't want one host blocking
     another."""
 
+    # TODO:
+    #   Naming a bit iffy.  This is technically not concurrent unless you give
+    #   it a concurrent pool.
+
     def __init__(self, events, runners, transports):
         self.events = events
         self.pool = runners
@@ -80,7 +84,9 @@ class ConcurrentHostPoller():
                 #
                 #   Deal with overlapping events (some plugins might be on a
                 #   different interval tho).  Might need some kind of finish
-                #   event.
+                #   run event.  We might need special handing when we don't have
+                #   threads if we are to hendle running the interval at the
+                #   right time.
                 self.poll()
         except:
             self.logger.exception(u"poller exception")
@@ -98,13 +104,17 @@ class ConcurrentHostPoller():
 
     def poll(self):
         """Poll for plugins and dispatch jobs to process each one."""
+        self.logger.info(u"begining polling run")
         self.pool.start()
         transport = self.transports.get(thread_id=1)
 
-        for plugin in transport.fetch():
+        for plugin in transport.list_plugins():
             status = self.pool.run(EventQueue.Plugin(plugin))
             if status == "full":
-                self.logger.warn("no space for plugin {0}".format(plugin))
+                # TODO:
+                #   Check that the threads didn't crash (or maybe just do that
+                #   in the pool/).
+                self.logger.warning("no space for plugin {0}".format(plugin))
             else:
                 self.logger.debug("plugin {0} run: {1}".format(plugin, status))
 
@@ -112,10 +122,23 @@ class PluginRunner(object):
     # exposition
     def __init__(self, events):
         self.events = events
+        self.logger = logging.getLogger()
 
     def run(self):
-        if self.events.get().is_exit():
-            return
+        print "wait for stuff to happen"
+        # never see this messsage below this wtf
+        # loads one message and then nothing else
+        while True:
+            event = self.events.get()
+            print "got event"
+            if event.is_exit():
+                print "exit"
+                return
+
+            print "process {0}".format(event.name)
+            self.logger.debug(u"process plugin {0}".format(event.name))
+
+        self.logger.debug("finish runner")
 
 class LimitedPool(object):
     """A thread pool of a particular size with a limited pipe to read from."""
@@ -128,13 +151,14 @@ class LimitedPool(object):
         self.name = name
         self.logger = logger
         self.thread_factory = thread
+        self.started = False
 
     def create(self):
         if self.threads:
             return
 
         self.logger.info(
-                u"starting {0} threads for {1}".format(self.pool_size, self.name))
+                u"creating {0} threads for {1}".format(self.pool_size, self.name))
 
         runners = [PluginRunner(self.events) for _ in range(self.pool_size)]
         self.threads = [
@@ -145,7 +169,12 @@ class LimitedPool(object):
                 for num, runner in enumerate(runners)]
 
     def start(self):
+        if self.started:
+            return
+
+        self.logger.info("starting {0} threads".format(self.name))
         [thread.start() for thread in self.threads]
+        self.started = True
 
     def put(self, event):
         self.events.put(event, timeout=self.timeout)
@@ -187,6 +216,9 @@ class LimitedPool(object):
 
             live_threads = still_alive
 
+class SynchronusPluginProcessor():
+    """Plugin processing without any threads."""
+
 class MultiPoolPluginProcessor():
     """
     Deals with a pool of plugin runners and the queues to send jobs to them.
@@ -226,7 +258,20 @@ class MultiPoolPluginProcessor():
         self.general.create()
         self.overflow.create()
 
+        self.general.start()
+        self.overflow.start()
+
         self.started = True
+
+    def reset(self):
+        """Hax for testing."""
+        self.started = False
+        self.finished = False
+
+        self.general.threads = []
+        self.overflow.threads = []
+        self.general.started = False
+        self.overflow.started = False
 
     def finish(self):
         """Finish with this pool.  Try our best to make sure all the threads
@@ -243,6 +288,7 @@ class MultiPoolPluginProcessor():
 
     def run(self, plugin):
         """Run the plugin using the general or overflow pools."""
+        self.logger.debug("put {0}".format(plugin.name))
         try:
             self.general.put(plugin)
             return "queued"
