@@ -45,11 +45,14 @@ class ConcurrentHostPollerTest(TestCase):
         poller.events.put(poller.events.Interval())
         poller.events.put(poller.events.Exit())
         transport = Mock(spec=TelnetTransport)
-        transport.fetch.return_value = ['a', 'b', 'c',]
+        plugins = ['a', 'b', 'c',]
+        transport.list_plugins.return_value = plugins
         poller.transports.get.return_value = transport
 
         self.assertEquals(False, poller.pool.finish.called)
         poller.run()
+        self.assertEquals(plugins, [call[0][0].name for call in
+                                    poller.pool.run.call_args_list])
         self.assertEquals(True, poller.pool.finish.called)
 
 class MultiPoolPluginProcessorTest(TestCase):
