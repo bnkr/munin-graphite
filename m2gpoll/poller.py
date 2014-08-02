@@ -48,6 +48,7 @@ class EventQueue(object):
         return self.queue.get(block=self.block)
 
 class ThreadAdapter(logging.LoggerAdapter):
+    """Adds information about the current running thread to log messages."""
     def process(self, msg, kwargs):
         thread = threading.current_thread()
         return u"Thread {0}: {1}".format(thread, msg), kwargs
@@ -119,22 +120,23 @@ class ConcurrentHostPoller():
                 self.logger.debug("plugin {0} run: {1}".format(plugin, status))
 
 class PluginRunner(object):
-    # exposition
-    def __init__(self, events):
+    """Runs plugins and sends their metrics to be processed."""
+
+    def __init__(self, events, output):
         self.events = events
-        self.logger = logging.getLogger()
+        self.output = output
+        self.logger = ThreadAdapter(logging.getLogger(__name__), {})
 
     def run(self):
-        # never see this messsage below this wtf
-        # loads one message and then nothing else
         while True:
             event = self.events.get()
             if event.is_exit():
                 return
 
             self.logger.debug(u"process plugin {0}".format(event.name))
+            # TODO: process the plugin now
 
-        self.logger.debug("finish runner")
+        self.logger.info("finish runner")
 
 class LimitedPool(object):
     """A thread pool of a particular size with a limited pipe to read from."""
@@ -156,7 +158,8 @@ class LimitedPool(object):
         self.logger.info(
                 u"creating {0} threads for {1}".format(self.pool_size, self.name))
 
-        runners = [PluginRunner(self.events) for _ in range(self.pool_size)]
+        runners = [PluginRunner(events=self.events, output=None)
+                   for _ in range(self.pool_size)]
         self.threads = [
                 self.thread_factory(
                     name="{0} #{1}/{2}".format(
@@ -291,6 +294,6 @@ class MultiPoolPluginProcessor():
         except queue.Full:
             try:
                 self.overflow.put(plugin)
-                return "overflopwed"
+                return "overflowed"
             except queue.Full:
                 return "full"

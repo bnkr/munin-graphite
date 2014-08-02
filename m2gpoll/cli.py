@@ -206,9 +206,10 @@ def setup_logging(settings):
     logger = logging.getLogger()
     logger.setLevel(logging_level)
     syslog = logging.handlers.SysLogHandler(address='/dev/log')
-    stdout = logging.StreamHandler(sys.stderr)
     formatter = logging.Formatter('MUNIN-GRAPHITE: %(levelname)s %(message)s')
     syslog.setFormatter(formatter)
+
+    stdout = logging.StreamHandler(sys.stdout)
 
     if settings.logtosyslog:
         logger.addHandler(syslog)
