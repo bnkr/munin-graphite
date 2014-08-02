@@ -179,7 +179,6 @@ class LimitedPool(object):
         self.events.put(event, timeout=self.timeout)
 
     def spam_exit(self):
-        self.logger.info("spam exit event")
         for _ in self.threads:
             try:
                 self.events.put(EventQueue.Exit(), block=False)
@@ -278,6 +277,7 @@ class MultiPoolPluginProcessor():
 
         # Avoid filling up the queue if we already tried this one time.
         if not self.finished:
+            self.logger.info("spam exit event")
             self.general.spam_exit()
             self.overflow.spam_exit()
 

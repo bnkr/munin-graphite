@@ -123,3 +123,17 @@ class MultiPoolPluginProcessorTest(TestCase):
         pool.run(EventQueue.Plugin("name"))
         pool.run(EventQueue.Plugin("name"))
         self.assertEquals("name", pool.overflow.events.get(block=False).name)
+
+    def test_plugin_full(self):
+        pool = self._make_pool(general=2, overflow=1)
+        pool.general.timeout = 0 # avoid slow test
+        pool.overflow.timeout = 0 # avoid slow test
+        self.assertEquals('queued', pool.run(EventQueue.Plugin("1")))
+        self.assertEquals('queued', pool.run(EventQueue.Plugin("2")))
+        self.assertEquals('overflowed', pool.run(EventQueue.Plugin("3")))
+        self.assertEquals("full", pool.run(EventQueue.Plugin("4")))
+        self.assertEquals("1", pool.general.events.get(block=False).name)
+        self.assertEquals("2", pool.general.events.get(block=False).name)
+        self.assertEquals("3", pool.overflow.events.get(block=False).name)
+        self.assertEquals(True, pool.general.events.empty())
+        self.assertEquals(True, pool.overflow.events.empty())
