@@ -125,17 +125,13 @@ class PluginRunner(object):
         self.logger = logging.getLogger()
 
     def run(self):
-        print "wait for stuff to happen"
         # never see this messsage below this wtf
         # loads one message and then nothing else
         while True:
             event = self.events.get()
-            print "got event"
             if event.is_exit():
-                print "exit"
                 return
 
-            print "process {0}".format(event.name)
             self.logger.debug(u"process plugin {0}".format(event.name))
 
         self.logger.debug("finish runner")
